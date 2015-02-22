@@ -3,9 +3,11 @@ import sys
 import struct
 import threading
 from Crypto.PublicKey import RSA
+from Crypto.Cipher import AES
 import rsa
 from multiprocessing import Process
 import socket
+import os
 
 #https://docs.python.org/3.4/library/socketserver.html
 
@@ -17,6 +19,13 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
         bytemsg = bytes(stringmessage, "utf-8")
         self.request.sendall(struct.pack("I",len(stringmessage)))
         self.request.sendall(bytes(value,"utf-8"))
+    
+    def receive(self):
+        size = self.request.recv(4)
+        size = struct.unpack("I",clientKeySize)[0]
+        data = self.request.recv(int(size))
+        data = str(self.data,"utf-8")
+        return data
 
     def handle(self):
         #print("Socket Info: ",self.client_address)
@@ -62,7 +71,7 @@ if __name__ == "__main__":
     def client():
            # Create a socket (SOCK_STREAM means a TCP socket)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
+        
         try:
             sock.connect(('localhost',9999))#9999 is the main server
             # Upon connection, send key to server + info on client's Server
@@ -73,17 +82,38 @@ if __name__ == "__main__":
             sock.sendall(struct.pack("I",len(str(PORT))))
             sock.sendall(bytes(str(PORT),"utf-8"))
             
+            AESKey = os.urandom(16)
+            IV = os.urandom(16)
+            sock.sendall(struct.pack("I",len(AESKey)))
+            sock.sendall(AESKey)
+            sock.sendall(struct.pack("I",len(IV)))
+            sock.sendall(IV)
+            
+            
+            #clientKeySize = self.request.recv(4)
+            #clientKeySize = struct.unpack("I",clientKeySize)[0]
+            #clientKey = self.request.recv(int(clientKeySize))
+            #clientServerHostSize = self.request.recv(4)
+            #clientServerHostSize = struct.unpack("I",clientServerHostSize)[0]
+            #clientServerHost = self.request.recv(int(clientServerHostSize))
+            #clientServerPortSize = self.request.recv(4)
+            #clientServerPortSize = struct.unpack("I",clientServerPortSize)[0]
+            #clientServerPort = self.request.recv(int(clientServerPortSize))
+            #dictionary[clientKey]=(clientServerHost,int(clientServerPort))
+            
             print("Connected.")
             dictionary = {}
             while True:
+                aes = AES.new(AESKey, AES.MODE_CFB, IV)
                 try:
                     command = input()
                     if command:
+                        command = aes.encrypt(command)
                         #sock.sendall(bytes(command,"utf-8"))          
                         size = len(command)
                         size32bit = struct.pack("I",size)
                         sock.sendall(size32bit)#sendalling the size of the command
-                        sock.sendall(bytes(command, "utf-8"))#command to sendall
+                        sock.sendall(command)#command to sendall
                     
                 except:
                     print("ERROR: Invalid packet from server. Terminating", file=sys.stderr)
