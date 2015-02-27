@@ -6,6 +6,8 @@ from Crypto.PublicKey import RSA
 from Crypto.Cipher import AES
 import rsa
 import socket
+import json
+import base64
 #https://docs.python.org/3.4/library/socketserver.html
 
 class MyTCPHandler(socketserver.BaseRequestHandler):
@@ -30,50 +32,68 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
 
     def handle(self):
         print("Socket Info: ",self.client_address)
-        #clientList.append(self.client_address)
-        contKey=0
-        #Receive Client's Information first.
-        clientKey = self.receive()
-        clientServerHost = self.receive()
-        clientServerPort = self.receive()
-        clientList.append((clientServerHost,int(clientServerPort)))
-        AESKey = self.recvBytes()
-        IV = self.recvBytes()
-        aes = AES.new(AESKey, AES.MODE_CFB, IV)
-        
-        
-        #send(pubKeyInBytes)
-        #send(str(HOST))
-        #send(str(PORT))
-        #sock.sendall(struct.pack("I",len(pubKeyInBytes)))
-        #sock.sendall(pubKeyInBytes)
-        #sock.sendall(struct.pack("I",len(str(HOST))))
-        #sock.sendall(bytes(str(HOST),"utf-8"))
-        #sock.sendall(struct.pack("I",len(str(PORT))))
-        #sock.sendall(bytes(str(PORT),"utf-8"))
-        
-        #Send key to client
-        
-        print("Client's Key: ",clientKey)
+    
         self.data = ""
         while(self.data != "exit"):
-            aes = AES.new(AESKey, AES.MODE_CFB, IV)
             self.size = self.request.recv(4)
             self.size = struct.unpack("I", self.size)[0]
             if(int(self.size) != 0):   
                 self.data = self.request.recv(int(self.size))#.strip()
-                #self.data = str(self.data,"utf-8")
-                self.data = aes.decrypt(self.data)
-                print(self.data)
-                #Just want to send back SizeofMessage + Message
-                #returnData = bytes(self.data,"utf-8")
-                print(clientList)
-                for client in clientList:
-                    sockt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sockt.connect(client)
-                    sockt.sendall(struct.pack("I",len(self.data)))
-                    sockt.sendall(self.data)
-                    sockt.close()
+                self.data = str(self.data, 'utf-8')
+                
+                if(self.data == '0'): #This is flag for receiving client Key + Addr
+                    #Receive Client's Information first.
+                    clientKey = self.recvBytes()
+                    clientServerHost = self.receive()
+                    clientServerPort = self.receive()
+                    clientMap[str(clientKey,'utf-8')] = (clientServerHost, int(clientServerPort))
+                    
+                    mapToSend = json.dumps(clientMap)
+                    #Send the newly updated map to all clients
+                    for client in clientMap:
+                        if(client != (clientServerHost,clientServerPort)):
+                            sockt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            sockt.connect(clientMap[client])
+                            #Broadcast the new client data to all previous clients
+                            #Flag is b'00000000'
+                            sockt.sendall(struct.pack("I",len(b'00000000')))
+                            sockt.sendall(b'00000000')
+                            #Data is in form of dictionary
+                            print('mapToSend: ', mapToSend)
+                            sockt.sendall(struct.pack("I",len(bytes(mapToSend,'utf-8'))))
+                            sockt.sendall(bytes(mapToSend,'utf-8'))
+                            sockt.close()
+                    
+                    #Sending Server's Key + HostPort to client
+                    self.request.sendall(struct.pack("I",len(pubKeyInBytes)))
+                    self.request.sendall(pubKeyInBytes)
+                    self.request.sendall(struct.pack("I",len(str(HOST))))
+                    self.request.sendall(bytes(str(HOST),"utf-8"))
+                    self.request.sendall(struct.pack("I",len(str(PORT))))
+                    self.request.sendall(bytes(str(PORT),"utf-8"))
+        
+                
+                elif(self.data == '00000001'): #Flag to decrypt message
+                    
+                    size = self.request.recv(4)
+                    size = struct.unpack("I", size)[0]
+                    jsonString = self.request.recv(int(size))
+                    jsonString = str(jsonString, 'utf-8')
+                    jsonData = json.loads(jsonString)
+                    print('received json: ',jsonString)
+
+                 
+                #print(str(data) + " received")
+      
+                #print(str(self.data,"utf-8") + " received from: " + str(self.client_address))
+
+                #for client in clientMap:
+                  
+                #    sockt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                #    sockt.connect(clientMap[client])
+                #    sockt.sendall(struct.pack("I",len(self.data)))
+                #    sockt.sendall(self.data)
+                #    sockt.close()
                     #self.request.sendto(struct.pack("I",len(str(self.data))),client)
                     #self.request.sendto(bytes(str(self.data),"utf-8"),client)  
                 #self.request.sendall(struct.pack("I",len(str(self.data))))
@@ -100,7 +120,7 @@ if __name__ == "__main__":
 
     dictionary = {}
     # Create the server, binding to localhost on port 9999
-    clientList =[]
+    clientMap = {}
     
     try:
         server = ThreadedTCPServer((HOST,9999), MyTCPHandler)#9999 is main port for now
