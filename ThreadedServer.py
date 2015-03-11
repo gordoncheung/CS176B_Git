@@ -89,8 +89,35 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                         jsonString = str(jsonString, 'utf-8')
                         jsonData = json.loads(jsonString)
                         #print('received json: ',jsonString)
-                    
-     
+                        #The last TWO elements are guaranteed to be the SYMMETRIC Key
+                        #Pop these two off and handle separately
+                        mySymIV = jsonData.pop()
+                        mySymKey = jsonData.pop()
+
+                        #Next step is to decrypt the IV and Key using my privateKey
+                        mySymIV = rsa.decrypt(base64.b16decode(bytes(mySymIV,'utf-8')),privKey)
+                        mySymKey = rsa.decrypt(base64.b16decode(bytes(mySymKey,'utf-8')),privKey)
+                        mySymIV = base64.b16decode(mySymIV)
+                        mySymKey = base64.b16decode(mySymKey)
+                        #print("SymIV & Key: ", mySymIV, mySymKey)
+                        #In a loop, decode everything back to utf-8
+                        #Now, decrypt everything using the Symmetric Key
+                        for i in range(len(jsonData)):
+                            jsonData[i] = base64.b16decode(jsonData[i])
+                            myAES = AES.new(mySymKey, AES.MODE_CFB, mySymIV)
+                            jsonData[i] = myAES.decrypt(jsonData[i])
+                        
+                        print(jsonData[0], type(jsonData[0]))    
+                        
+                        #Broadcast the message to all clients
+                        for client in clientMap:
+                            sockt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            sockt.connect(clientMap[client])
+                            sockt.sendall(struct.pack("I",len(b'00000005')))#Flag 00000005 to notify client to print msg
+                            sockt.sendall(b'00000005')
+                            sockt.sendall(struct.pack("I",len(jsonData[0])))
+                            sockt.sendall(jsonData[0])
+                            sockt.close()
 
                     #print(str(data) + " received")
           
