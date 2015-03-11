@@ -58,16 +58,60 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                             clientMap[key]=updatedMap[key]
                         #print("ClientMap: ",clientMap)
                     elif(self.data == '00000001'):#00000001 means decrypt this segment
-                        dataSize = self.request.recv(4)
-                        dataSize = struct.unpack("I", dataSize)[0]
-                        encData = self.request.recv(int(dataSize))
-                        encData = str(encData,'utf-8')
-                        recAESKey = bytes(encData[0:35],'utf-8')
-                        recAESKey = base64.b16decode(recAESKey)
-                        recIV = bytes(encData[35:70],'utf-8')
-                        recIV = base64.b16decode(recIV)
-                        print('AES Stuff from Server: ',recAESKey,recIV)
-                    print(self.data)                         
+                        #print("00000001 Flag. Server Decrypt")
+                        size = self.request.recv(4)
+                        size = struct.unpack("I", size)[0]
+                        jsonString = self.request.recv(int(size))
+                        jsonString = str(jsonString, 'utf-8')
+                        jsonData = json.loads(jsonString)
+                        #print(jsonData)
+                        #print('received json: ',jsonString)
+                        #The last TWO elements are guaranteed to be the SYMMETRIC Key
+                        #Pop these two off and handle separately
+                        mySymIV = jsonData.pop()
+                        mySymKey = jsonData.pop()
+
+                        #Next step is to decrypt the IV and Key using my privateKey
+                        mySymIV = rsa.decrypt(base64.b16decode(bytes(mySymIV,'utf-8')),privKey)
+                        mySymKey = rsa.decrypt(base64.b16decode(bytes(mySymKey,'utf-8')),privKey)
+                        mySymIV = base64.b16decode(mySymIV)
+                        mySymKey = base64.b16decode(mySymKey)
+                        #print("SymIV & Key: ", mySymIV, mySymKey)                        
+                        #In a loop, decode everything back to utf-8
+                        #Now, decrypt everything using the Symmetric Key
+                        for i in range(len(jsonData)):
+                            jsonData[i] = base64.b16decode(jsonData[i])
+                            myAES = AES.new(mySymKey, AES.MODE_CFB, mySymIV)
+                            jsonData[i] = myAES.decrypt(jsonData[i])
+                            jsonData[i] = str(jsonData[i],'utf-8')
+                        
+                        
+                        
+                        #Handle Destination
+                        flag = jsonData.pop()
+                        destKey = jsonData.pop()
+                        jsonData = json.dumps(jsonData)
+                        tmpSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        if destKey == str(serverData[0],'utf-8'):
+                            tmpSock.connect((serverData[1],int(serverData[2])))
+                        else:
+                            tmpSock.connect((clientMap[destKey][0],int(clientMap[destKey][1])))
+                        tmpSock.sendall(struct.pack("I",len(b'00000001')))
+                        #Send the flag 00000001
+                        #This flag indicates that the receiver needs to decrypt the message
+                        tmpSock.sendall(b'00000001')
+                        tmpSock.sendall(struct.pack("I",len(bytes(jsonData,'utf-8'))))
+                        tmpSock.sendall(bytes(jsonData,'utf-8'))
+                        tmpSock.close()
+                        
+                    elif(self.data == '00000005'):#Receiving msg and printing
+                        msgSize = self.request.recv(4)
+                        msgSize = struct.unpack("I",msgSize)[0]
+                        msgF = self.request.recv(int(msgSize))
+                        msgF = str(msgF,'utf-8')
+                        print(msgF)
+                        
+                    #print(self.data)                         
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
@@ -86,7 +130,7 @@ if __name__ == "__main__":
     # Create the server, binding to localhost on port 9999
     
     print("Begin Client Interaction: \n", file = sys.stdout)
-    
+    serverData = []
 ##############################################################################
 ######################CLIENT##################################################
 ##############################################################################    
@@ -130,6 +174,9 @@ if __name__ == "__main__":
             serverPubKey = recvBytes()
             serverHost = receive()
             serverPort = receive()
+            serverData.append(serverPubKey)
+            serverData.append(serverHost)
+            serverData.append(serverPort)
             print("serverPubKey: ", serverPubKey)
             print("Connected to: ", serverHost, serverPort)
             dictionary = {}
@@ -137,15 +184,15 @@ if __name__ == "__main__":
                 #aes = AES.new(AESKey, AES.MODE_CFB, IV)
                 try:
                     command = input()
-                    #print('CL2: ', clientMap)
+                    #print('Client Map!!: ', clientMap)
                     #MAP is in SavedKeyBytes:["IP",NUM]
                     if command != "/show":
                         #Generate a packet with a path
                     
-                        
+                        #Packet looks like: [data, dst,flag,aesKey,aesIv,dst2,flag2,aeskey2,...]
                         serverAESKey = os.urandom(16)
                         serverIV = os.urandom(16)
-                        encryptedData=[command, str(serverPubKey,'utf-8'), '0']
+                        encryptedData=[command, ' ', '0']
                         #Encrypt each index of the list. 
                         #The list acts as the packet that we are sending
                         #It will be sent via JSON.
@@ -155,48 +202,67 @@ if __name__ == "__main__":
                             newData = serverAES.encrypt(encryptedData[i])
                             newData = base64.b16encode(newData)
                             encryptedData[i] = str(newData,'utf-8')
+                            
                         enc = base64.b16encode(serverAESKey)
                         encIV = base64.b16encode(serverIV)
+                        #print("SymIV & Key: ", encIV, enc)
                         #rsa.encrypt takes a Bytes object, and a LoadedKey.
                         #Whoever receives this needs to undo.
-                        #Sequence is b16Encode, rsaEncrypt, b16Encode, Str.
-                        #Do reverse.
                         encSKey = rsa.encrypt(enc,pubKey.load_pkcs1(serverPubKey))
                         encsIV = rsa.encrypt(encIV,pubKey.load_pkcs1(serverPubKey))
                         enc16Key = base64.b16encode(encSKey)
                         enc16IV = base64.b16encode(encsIV)
                         encryptedData.append(str(enc16Key,'utf-8'))
                         encryptedData.append(str(enc16IV,'utf-8'))
-                        print("EncryptedData: ",encryptedData, len(encryptedData))
-                        firstDestination=str(serverPubKey,'utf-8')
-                        print("Packet Constructed")
-                        #for key in clientMap:
-                        #    AESKey = os.urandom(16)
-                        #    IV = os.urandom(16)
-                        #    for i in range(len(encryptedData)):
-                        #        AES = AES.new(AESkey, AES.MODE_CFB, IV)
-                        #        encryptedData[i] = AES.encrypt(encryptedData[i])
-                        #    encodedKey = base64.b16encode(AESKey) #this is informat b'xxxx'
-                        #    encryptedKey = rsa.encrypt(encodedKey, pubKey.load_pkcs1(bytes(key,'utf-8')))#convert to bytes and decode before using
-                        #    encodedIV = base64.b16encode(IV)
-                        #    encryptedIV = rsa.encrypt(encodedIV, pubKey.load_pkcs1(bytes(key,'utf-8')))
-                        #    
-                        #    encryptedData.append(key)
-                        #    encryptedData.append('0')
-                        #    encryptedData.append(encryptedKey)
-                        #    encryptedData.append(encryptedIV)
-                            
-                        #    firstDestination = key
                         
+                        #print("EncryptedData: ",encryptedData, len(encryptedData))
+                        firstDestination=str(serverPubKey,'utf-8')
+                        #print("Packet Constructed")
+                        previousKey = str(serverPubKey,'utf-8')
+                        
+                        #Now encrypting by each path
+                        for key in clientMap:
+                            #print("Compare: ",key, pubKeyInBytes)
+                            if bytes(key,'utf-8') == pubKeyInBytes:
+                                #print("Keys are the same, skip")
+                                continue
+                            else:
+                                AESKey = os.urandom(16)
+                                IV = os.urandom(16)
+                                encryptedData.append(previousKey)#Destination
+                                encryptedData.append('0')
+                                for i in range(len(encryptedData)):
+                                    aes = AES.new(AESKey, AES.MODE_CFB, IV)
+                                    newData = aes.encrypt(encryptedData[i])
+                                    newData = base64.b16encode(newData)
+                                    encryptedData[i] = str(newData,'utf-8')
+                                encodedKey = base64.b16encode(AESKey) #this is informat b'xxxx'
+                                encodedIV = base64.b16encode(IV)
+                                #print("16Key & IV: ", encodedKey, encodedIV)
+                                encryptedKey = rsa.encrypt(encodedKey, pubKey.load_pkcs1(bytes(key,'utf-8')))#convert to bytes and decode before using
+                                encryptedIV = rsa.encrypt(encodedIV, pubKey.load_pkcs1(bytes(key,'utf-8')))
+                                encrypted16Key = base64.b16encode(encryptedKey)
+                                encrypted16IV = base64.b16encode(encryptedIV)
+                                
+
+                                encryptedData.append(str(encrypted16Key,'utf-8'))
+                                encryptedData.append(str(encrypted16IV,'utf-8'))
+                                
+                                previousKey = key
+                                
+                                firstDestination = key
+                    
                         
                                 
                         #Send packet to server
-                        print(str(serverHost), int(serverPort))
+                        #print(str(serverHost), serverPort)
                         jsonData = json.dumps(encryptedData)
-                        print("nomake")
-                        aSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        
-                        aSock.connect((str(serverHost),int(serverPort)))
+                        #print("Connecting to: ", clientMap[firstDestination])
+                        aSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  
+                        if(firstDestination) == str(serverPubKey,'utf-8'):
+                            aSock.connect((serverHost,int(serverPort)))
+                        else:
+                            aSock.connect((clientMap[firstDestination][0],int(clientMap[firstDestination][1])))
                         aSock.sendall(struct.pack("I",len(b'00000001')))
                         #Send the flag 00000001
                         #This flag indicates that the receiver needs to decrypt the message
