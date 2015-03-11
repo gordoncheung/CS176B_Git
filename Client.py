@@ -36,6 +36,9 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
         return data    
         
     def handle(self):
+        #Flag List:
+        #'00000000': Receiving map of all {keys:(host,port)}
+        #'00000001': Decrypt this segment
         
         self.data = ""
         while(self.data != "exit"):
@@ -109,12 +112,12 @@ if __name__ == "__main__":
             sock.connect(('localhost',9999))#9999 is the main server
             #All sends must now have a flag before them
             #Here are codes(using 1 byte flags currently)
-            #0 - Sending Key + Address
+            #'00000000': Sending Key + Address
             
             
             # Upon connection, send key to server + info on MAIN Server
-            sock.sendall(struct.pack("I", 1))
-            sock.sendall(bytes('0', 'utf-8'))#<-- Flag 0
+            sock.sendall(struct.pack("I",len(b'00000000')))
+            sock.sendall(b'00000000')#<-- Flag 0
             sock.sendall(struct.pack("I",len(pubKeyInBytes)))
             sock.sendall(pubKeyInBytes)
             sock.sendall(struct.pack("I",len(str(HOST))))
@@ -122,62 +125,81 @@ if __name__ == "__main__":
             sock.sendall(struct.pack("I",len(str(PORT))))
             sock.sendall(bytes(str(PORT),"utf-8"))
             
-            #receive clientKey and add to map
+            #receive clientKey and add to map.
+            #Does NOT receive a Flag back from the server. Expects this data upon connection
             serverPubKey = recvBytes()
-            #clientPubKey = rsa.load_pkcs1(clientPubKey)
             serverHost = receive()
             serverPort = receive()
-                
-            print("Connected.")
+            print("serverPubKey: ", serverPubKey)
+            print("Connected to: ", serverHost, serverPort)
             dictionary = {}
             while True:
                 #aes = AES.new(AESKey, AES.MODE_CFB, IV)
                 try:
                     command = input()
                     #print('CL2: ', clientMap)
-                    if command:
+                    #MAP is in SavedKeyBytes:["IP",NUM]
+                    if command != "/show":
                         #Generate a packet with a path
+                    
                         
                         serverAESKey = os.urandom(16)
                         serverIV = os.urandom(16)
                         encryptedData=[command, str(serverPubKey,'utf-8'), '0']
+                        #Encrypt each index of the list. 
+                        #The list acts as the packet that we are sending
+                        #It will be sent via JSON.
                         for i in range(len(encryptedData)):
+                            #All of this needs to be undone by the receiver...
                             serverAES = AES.new(serverAESKey, AES.MODE_CFB, serverIV)
-                            encryptedData[i] = serverAES.encrypt(encryptedData)
+                            newData = serverAES.encrypt(encryptedData[i])
+                            newData = base64.b16encode(newData)
+                            encryptedData[i] = str(newData,'utf-8')
                         enc = base64.b16encode(serverAESKey)
                         encIV = base64.b16encode(serverIV)
-                        encSKey = rsa.encrypt(str(enc,'utf-8'),pubKey.load_pkcs1(bytes(key,'utf-8')))
-                        encsIV = rsa.encrypt(str(encIV,'utf-8'),pubKey.load_pkcs1(bytes(key,'utf-8')))
-                        encryptedData.append(encSKey)
-                        encrypedData.append(encsIV)
-                        
+                        #rsa.encrypt takes a Bytes object, and a LoadedKey.
+                        #Whoever receives this needs to undo.
+                        #Sequence is b16Encode, rsaEncrypt, b16Encode, Str.
+                        #Do reverse.
+                        encSKey = rsa.encrypt(enc,pubKey.load_pkcs1(serverPubKey))
+                        encsIV = rsa.encrypt(encIV,pubKey.load_pkcs1(serverPubKey))
+                        enc16Key = base64.b16encode(encSKey)
+                        enc16IV = base64.b16encode(encsIV)
+                        encryptedData.append(str(enc16Key,'utf-8'))
+                        encryptedData.append(str(enc16IV,'utf-8'))
+                        print("EncryptedData: ",encryptedData, len(encryptedData))
                         firstDestination=str(serverPubKey,'utf-8')
-                        
-                        for key in clientMap:
-                            AESKey = os.urandom(16)
-                            IV = os.urandom(16)
-                            for i in range(len(encryptedData)):
-                                AES = AES.new(AESkey, AES.MODE_CFB, IV)
-                                encryptedData[i] = AES.encrypt(encryptedData)
-                            encodedKey = base64.b16encode(AESKey) #this is informat b'xxxx'
-                            encryptedKey = rsa.encrypt(str(encodedKey,'utf-8'), pubKey.load_pkcs1(bytes(key,'utf-8')))#convert to bytes and decode before using
-                            encodedIV = base64.b16encode(IV)
-                            encryptedIV = rsa.encrypt(str(encodedIV,'utf-8'), pubKey.load_pkcs1(bytes(key,'utf-8')))
+                        print("Packet Constructed")
+                        #for key in clientMap:
+                        #    AESKey = os.urandom(16)
+                        #    IV = os.urandom(16)
+                        #    for i in range(len(encryptedData)):
+                        #        AES = AES.new(AESkey, AES.MODE_CFB, IV)
+                        #        encryptedData[i] = AES.encrypt(encryptedData[i])
+                        #    encodedKey = base64.b16encode(AESKey) #this is informat b'xxxx'
+                        #    encryptedKey = rsa.encrypt(encodedKey, pubKey.load_pkcs1(bytes(key,'utf-8')))#convert to bytes and decode before using
+                        #    encodedIV = base64.b16encode(IV)
+                        #    encryptedIV = rsa.encrypt(encodedIV, pubKey.load_pkcs1(bytes(key,'utf-8')))
+                        #    
+                        #    encryptedData.append(key)
+                        #    encryptedData.append('0')
+                        #    encryptedData.append(encryptedKey)
+                        #    encryptedData.append(encryptedIV)
                             
-                            encryptedData.append(key)
-                            encryptedData.append('0')
-                            encryptedData.append(encryptedKey)
-                            encryptedData.append(encryptedIV)
-                            
-                            firstDestination = key
+                        #    firstDestination = key
                         
                         
                                 
-                        
+                        #Send packet to server
+                        print(str(serverHost), int(serverPort))
                         jsonData = json.dumps(encryptedData)
+                        print("nomake")
                         aSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        aSock.connect((serverHost,serverPort))
+                        
+                        aSock.connect((str(serverHost),int(serverPort)))
                         aSock.sendall(struct.pack("I",len(b'00000001')))
+                        #Send the flag 00000001
+                        #This flag indicates that the receiver needs to decrypt the message
                         aSock.sendall(b'00000001')
                         aSock.sendall(struct.pack("I",len(bytes(jsonData,'utf-8'))))
                         aSock.sendall(bytes(jsonData,'utf-8'))
@@ -194,7 +216,7 @@ if __name__ == "__main__":
                         #sock.sendall(command)#command to sendall
                     
                 except:
-                    print("ERROR: Invalid packet from server. Terminating", file=sys.stderr)
+                    print("ERROR: Something unexpected happened while sending packet", file=sys.stderr)
                     sys.exit(0)
         except:
             #print("ERROR: Could not connect to server. Terminating.", file=sys.stderr)
