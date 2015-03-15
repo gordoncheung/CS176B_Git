@@ -10,8 +10,14 @@ import json
 import base64
 #https://docs.python.org/3.4/library/socketserver.html
 
+
 class MyTCPHandler(socketserver.BaseRequestHandler):
 
+    postNumber = 0
+
+    def __init__(self, request, client_address, server):
+        super().__init__(request,client_address,server)
+        
     def send(self, stringmessage):#Helper function to send messages, not completed, no time
         bytemsg = bytes(stringmessage, "utf-8")
         self.request.sendall(struct.pack("I",len(stringmessage)))
@@ -31,12 +37,12 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
         return data
 
     def handle(self):
-        print("Socket Info: ",self.client_address)
+        #print("Socket Info: ",self.client_address)
         #List of Flags:
         #'00000000': Receive the client key + Addr
-        #'00000001': Decrypt whatever I have received
-        
-        
+        #'00000001': Decrypt whatever I have received       
+        #'10000000': Exit Flag
+        #'00000011': Print messages(send messageList to client)
         self.data = ""
         while(self.data != "exit"):
             self.size = self.request.recv(4)
@@ -45,13 +51,14 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                 if(int(self.size) != 0):   
                     self.data = self.request.recv(int(self.size))#.strip()
                     self.data = str(self.data, 'utf-8')
-                    
                     if(self.data == '00000000'): #This is flag for receiving client Key + Addr
-                        #Receive Client's Information first.
+                        #Receive Client's Information first.             
                         clientKey = self.recvBytes()
                         clientServerHost = self.receive()
                         clientServerPort = self.receive()
                         clientMap[str(clientKey,'utf-8')] = (clientServerHost, int(clientServerPort))
+                        
+                        print("New Connection from: ", clientServerHost, clientServerPort)
                         
                         #Sending Server's Key + HostPort to client 
                         self.request.sendall(struct.pack("I",len(pubKeyInBytes)))
@@ -82,7 +89,7 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
             
                     
                     elif(self.data == '00000001'): #Flag to decrypt message
-                        print("00000001 Flag. Server Decrypt")
+                        #print("00000001 Flag. Server Decrypt")
                         size = self.request.recv(4)
                         size = struct.unpack("I", size)[0]
                         jsonString = self.request.recv(int(size))
@@ -107,7 +114,12 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                             myAES = AES.new(mySymKey, AES.MODE_CFB, mySymIV)
                             jsonData[i] = myAES.decrypt(jsonData[i])
                         
-                        print(jsonData[0], type(jsonData[0]))    
+                        
+                        #print(jsonData[0], type(jsonData[0]))    
+                        print("Received from client: ", str(jsonData[0],'utf-8'))
+                        MyTCPHandler.postNumber += 1
+                        votableMessage = [str(jsonData[0],'utf-8'), MyTCPHandler.postNumber, 0]
+                        messageList.append(votableMessage)
                         
                         #Broadcast the message to all clients
                         for client in clientMap:
@@ -118,7 +130,40 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                             sockt.sendall(struct.pack("I",len(jsonData[0])))
                             sockt.sendall(jsonData[0])
                             sockt.close()
-
+                    
+                    elif(self.data == '00000011'):
+                        clientKey = self.recvBytes()
+                        listToSend = json.dumps(messageList)
+                        sockt=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        clientHost, clientPort = clientMap[(str(clientKey,'utf-8'))]
+                        sockt.connect((clientHost,int(clientPort)))
+                        sockt.sendall(struct.pack("I",len(b'00000011')))
+                        sockt.sendall(b'00000011')  
+                        sockt.sendall(struct.pack("I",len(bytes(listToSend,'utf-8'))))
+                        sockt.sendall(bytes(listToSend,'utf-8'))
+                        sockt.close()
+                        
+                    elif(self.data == '10000000'):
+                        clientKey = self.recvBytes()
+                        #If client disconnects, then need to remove from clientMap, and resend map to all other clients
+                        clientServerHost, clientServerPort = clientMap.pop(str(clientKey,'utf-8'))
+                        #Create map of key:(host,port) and send to all clients
+                        mapToSend = json.dumps(clientMap)
+                        #Send the newly updated map to all clients
+                        for client in clientMap:
+                            if(client != (clientServerHost,clientServerPort)):
+                                sockt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                                sockt.connect(clientMap[client])
+                                #Broadcast the new client data to all previous clients
+                                #Flag is b'00000000'
+                                sockt.sendall(struct.pack("I",len(b'00000000')))
+                                sockt.sendall(b'00000000')
+                                #Data is in form of dictionary
+                                #print('mapToSend: ', mapToSend)
+                                sockt.sendall(struct.pack("I",len(bytes(mapToSend,'utf-8'))))
+                                sockt.sendall(bytes(mapToSend,'utf-8'))
+                                sockt.close()
+                        break
                     #print(str(data) + " received")
           
                     #print(str(self.data,"utf-8") + " received from: " + str(self.client_address))
@@ -135,16 +180,19 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                     #self.request.sendall(struct.pack("I",len(str(self.data))))
                     #self.request.sendall(bytes(str(self.data),"utf-8"))                           
 
+    def finish(self):
+        return
+
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
                 
 if __name__ == "__main__":
-
+    
     myKey = rsa.newkeys(1024) #Tuple of Private and Public Key
     pubKey = myKey[0]
     privKey = myKey[1]
     pubKeyInBytes = pubKey.save_pkcs1(format='PEM')#This key is ready to be sent
-
+    keyToRemove = []
     print("Server Ready")
     #if len(sys.argv) != 2:
     #    print("ERROR: Invalid number of args. Terminating.")
@@ -155,8 +203,9 @@ if __name__ == "__main__":
     #    sys.exit(0)
 
     dictionary = {}
-    # Create the server, binding to localhost on port 9999
     clientMap = {}
+    messageList = []
+    postNumber = 0
     
     try:
         server = ThreadedTCPServer((HOST,9999), MyTCPHandler)#9999 is main port for now
@@ -173,4 +222,3 @@ if __name__ == "__main__":
 
     # Activate the server; this will keep running until you
     # interrupt the program with Ctrl-C
-
