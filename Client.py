@@ -11,6 +11,7 @@ import os
 import json
 import base64
 import random
+#import fcntl
 
 #https://docs.python.org/3.4/library/socketserver.html
 
@@ -156,23 +157,37 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
                 
 if __name__ == "__main__":
 
+    #def get_ip_address(ifname):
+    #    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    #    return socket.inet_ntoa(fcntl.ioctl(
+    #        s.fileno(),
+    #        0x8915,  # SIOCGIFADDR
+    #        struct.pack('256s', ifname[:15])
+    #    )[20:24])
+
+    #get_ip_address('eth0')
+    hostname = socket.gethostname()
+
     myKey = rsa.newkeys(1024) #Tuple of Private and Public Key
     pubKey = myKey[0]
     privKey = myKey[1]
     pubKeyInBytes = pubKey.save_pkcs1(format='PEM')#This key is ready to be sent
     
     print("Server Ready")
-    HOST, PORT = "localhost",  0 #0 finds an arbitrary available port
+    HOST, PORT = socket.gethostbyname(hostname),  0 #0 finds an arbitrary available port
     clientMap = {}
     # Create the server, binding to localhost on port 9999
     if len(sys.argv) != 3:
         print("ERROR: Invalid number of args. Terminating.")
         sys.exit(0)
     serverHOST, serverPORT = sys.argv[1], int(sys.argv[2])
+    
     if (serverPORT > 65535 or serverPORT < 1024):
         print("ERROR: Invalid port. Terminating.", file=sys.stderr)
         sys.exit(0)
-
+    if serverHOST == HOST:
+        HOST = 'localhost'
+        
     print("Begin Client Interaction: \n", file = sys.stdout)
     serverData = []
     
