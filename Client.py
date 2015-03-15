@@ -104,6 +104,7 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                         tmpSock.sendall(b'00000001')
                         tmpSock.sendall(struct.pack("I",len(bytes(jsonData,'utf-8'))))
                         tmpSock.sendall(bytes(jsonData,'utf-8'))
+                        tmpSock.shutdown(SHUT_RDWR)
                         tmpSock.close()
                     
                     elif(self.data == '00000011'):
@@ -207,6 +208,7 @@ if __name__ == "__main__":
                         sock.sendall(struct.pack("I",len(pubKeyInBytes)))
                         sock.sendall(pubKeyInBytes)
                         print("Ending Client.")
+                        sock.shutdown(SHUT_RDWR)
                         sock.close()
                         sys.exit(0)
                     
@@ -302,6 +304,7 @@ if __name__ == "__main__":
                         aSock.sendall(b'00000001')
                         aSock.sendall(struct.pack("I",len(bytes(jsonData,'utf-8'))))
                         aSock.sendall(bytes(jsonData,'utf-8'))
+                        aSock.shutdown(SHUT_RDWR)
                         aSock.close()
                         
                        
