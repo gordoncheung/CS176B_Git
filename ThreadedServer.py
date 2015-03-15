@@ -83,6 +83,7 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                                 #print('mapToSend: ', mapToSend)
                                 sockt.sendall(struct.pack("I",len(bytes(mapToSend,'utf-8'))))
                                 sockt.sendall(bytes(mapToSend,'utf-8'))
+                                sockt.shutdown(SHUT_RDWR)
                                 sockt.close()
                         
                    
@@ -129,6 +130,7 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                             sockt.sendall(b'00000005')
                             sockt.sendall(struct.pack("I",len(jsonData[0])))
                             sockt.sendall(jsonData[0])
+                            sockt.shutdown(SHUT_RDWR)
                             sockt.close()
                     
                     elif(self.data == '00000011'):
@@ -141,6 +143,7 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                         sockt.sendall(b'00000011')  
                         sockt.sendall(struct.pack("I",len(bytes(listToSend,'utf-8'))))
                         sockt.sendall(bytes(listToSend,'utf-8'))
+                        sockt.shutdown(SHUT_RDWR)
                         sockt.close()
                         
                     elif(self.data == '10000000'):
@@ -162,6 +165,7 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                                 #print('mapToSend: ', mapToSend)
                                 sockt.sendall(struct.pack("I",len(bytes(mapToSend,'utf-8'))))
                                 sockt.sendall(bytes(mapToSend,'utf-8'))
+                                sockt.shutdown(SHUT_RDWR)
                                 sockt.close()
                         break
                     #print(str(data) + " received")
