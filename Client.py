@@ -174,19 +174,19 @@ if __name__ == "__main__":
     pubKeyInBytes = pubKey.save_pkcs1(format='PEM')#This key is ready to be sent
     
     print("Server Ready")
-    HOST, PORT = socket.gethostbyname(hostname),  0 #0 finds an arbitrary available port
+    HOST, PORT = sys.argv[1],  0 #0 finds an arbitrary available port
     clientMap = {}
     # Create the server, binding to localhost on port 9999
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         print("ERROR: Invalid number of args. Terminating.")
         sys.exit(0)
-    serverHOST, serverPORT = sys.argv[1], int(sys.argv[2])
+    serverHOST, serverPORT = sys.argv[2], int(sys.argv[3])
     
     if (serverPORT > 65535 or serverPORT < 1024):
         print("ERROR: Invalid port. Terminating.", file=sys.stderr)
         sys.exit(0)
-    if serverHOST == HOST:
-        HOST = 'localhost'
+    #if serverHOST == HOST:
+    #    HOST = 'localhost'
         
     print("Begin Client Interaction: \n", file = sys.stdout)
     serverData = []
@@ -377,6 +377,9 @@ if __name__ == "__main__":
     
     server = ThreadedTCPServer((HOST,PORT), MyTCPHandler)
     HOST, PORT = server.server_address
+    print(HOST,PORT)
+    server.allow_reuse_address=True
+    #server.serve_forever()
     c = threading.Thread(target = client)
     s = threading.Thread(target = server.serve_forever)
     s.start()
