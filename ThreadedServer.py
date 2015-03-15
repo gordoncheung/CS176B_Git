@@ -131,6 +131,7 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                         #Broadcast the message to all clients
                         for client in clientMap:
                             sockt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            print(clientMap[client])
                             sockt.connect(clientMap[client])
                             sockt.sendall(struct.pack("I",len(b'00000005')))#Flag 00000005 to notify client to print msg
                             sockt.sendall(b'00000005')
@@ -186,7 +187,7 @@ if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("ERROR: Invalid number of args. Terminating.")
         sys.exit(0)
-    HOST, PORT = "localhost",  int(sys.argv[1])
+    HOST, PORT = "169.231.37.36",  int(sys.argv[1])
     if (PORT > 65535 or PORT < 1024):
         print("ERROR: Invalid port. Terminating.", file=sys.stderr)
         sys.exit(0)
