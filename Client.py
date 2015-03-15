@@ -39,9 +39,10 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
         #Flag List:
         #'00000000': Receiving map of all {keys:(host,port)}
         #'00000001': Decrypt this segment
+        #'00000011': Receive messageList from server and print
         
         self.data = ""
-        while(self.data != "exit"):
+        while(True):
             self.size = self.request.recv(4)
             if self.size:
                 self.size = struct.unpack("I", self.size)[0]
@@ -54,6 +55,7 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                         updatedMap = self.request.recv(int(mapSize))
                         updatedMap = str(updatedMap,'utf-8')
                         updatedMap = json.loads(updatedMap)
+                        clientMap.clear()
                         for key in updatedMap:
                             clientMap[key]=updatedMap[key]
                         #print("ClientMap: ",clientMap)
@@ -103,13 +105,23 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                         tmpSock.sendall(struct.pack("I",len(bytes(jsonData,'utf-8'))))
                         tmpSock.sendall(bytes(jsonData,'utf-8'))
                         tmpSock.close()
+                    
+                    elif(self.data == '00000011'):
+                        listSize = self.request.recv(4)
+                        listSize = struct.unpack("I",listSize)[0]
+                        msgList = self.request.recv(int(listSize))
+                        msgList = str(msgList,'utf-8')
+                        msgList = json.loads(msgList)
+                        print("#     Votes  Message\n")
+                        for item in msgList:
+                            print(str(item[1]) + "     " + str(item[2]) + "   |  " + str(item[0]))
                         
                     elif(self.data == '00000005'):#Receiving msg and printing
                         msgSize = self.request.recv(4)
                         msgSize = struct.unpack("I",msgSize)[0]
                         msgF = self.request.recv(int(msgSize))
                         msgF = str(msgF,'utf-8')
-                        print(msgF)
+                        print("Received message from server: ", msgF)
                         
                     #print(self.data)                         
 
@@ -158,7 +170,6 @@ if __name__ == "__main__":
             #Here are codes(using 1 byte flags currently)
             #'00000000': Sending Key + Address
             
-            
             # Upon connection, send key to server + info on MAIN Server
             sock.sendall(struct.pack("I",len(b'00000000')))
             sock.sendall(b'00000000')#<-- Flag 0
@@ -177,16 +188,38 @@ if __name__ == "__main__":
             serverData.append(serverPubKey)
             serverData.append(serverHost)
             serverData.append(serverPort)
-            print("serverPubKey: ", serverPubKey)
+            #print("serverPubKey: ", serverPubKey)
             print("Connected to: ", serverHost, serverPort)
             dictionary = {}
             while True:
                 #aes = AES.new(AESKey, AES.MODE_CFB, IV)
                 try:
                     command = input()
+                    if(len(command) > 350):
+                        print("350 is the character limit. Please adjust your message. Or send multiple messages")
+                        continue
                     #print('Client Map!!: ', clientMap)
                     #MAP is in SavedKeyBytes:["IP",NUM]
-                    if command != "/show":
+                    if command == "$exit":
+                        sock.sendall(struct.pack("I",len(b'10000000')))
+                        #Send the flag 10000000 for exit
+                        sock.sendall(b'10000000')
+                        sock.sendall(struct.pack("I",len(pubKeyInBytes)))
+                        sock.sendall(pubKeyInBytes)
+                        print("Ending Client.")
+                        sock.close()
+                        sys.exit(0)
+                    
+                    elif command == "$users":#command to print number of users
+                        print("Number of users connected: ", len(clientMap))
+                        
+                    elif command == "$print":#Print all messages stored on server
+                        sock.sendall(struct.pack("I",len(b'00000011')))
+                        sock.sendall(b'00000011')
+                        sock.sendall(struct.pack("I",len(pubKeyInBytes)))
+                        sock.sendall(pubKeyInBytes)
+                        
+                    elif command != "$show":
                         #Generate a packet with a path
                     
                         #Packet looks like: [data, dst,flag,aesKey,aesIv,dst2,flag2,aeskey2,...]
@@ -282,6 +315,7 @@ if __name__ == "__main__":
                         #sock.sendall(command)#command to sendall
                     
                 except:
+                    sock.close()
                     print("ERROR: Something unexpected happened while sending packet", file=sys.stderr)
                     sys.exit(0)
         except:
@@ -298,4 +332,3 @@ if __name__ == "__main__":
     s.start()
     c.start()
     
-
