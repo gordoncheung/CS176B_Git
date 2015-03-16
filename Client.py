@@ -5,7 +5,6 @@ import threading
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import AES
 import rsa
-from multiprocessing import Process
 import socket
 import os
 import json
@@ -64,9 +63,6 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                     elif(self.data == '00000001'):#00000001 means decrypt this segment
                         size = self.request.recv(4)
                         size = struct.unpack("I", size)[0]
-                        #jsonString = self.request.recv(int(size))
-                        #jsonString = str(jsonString, 'utf-8')
-                        #jsonData = json.loads(jsonString)
                         numSegments = self.request.recv(int(size))
                         numSegments = int(str(numSegments,'utf-8'))
                         jsonString = ''
@@ -117,14 +113,12 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                         currString = ''
                         for i in range(len(jsonData)):
                             currString += jsonData[i]
-                            if((i % 4000 == 0) and i>0):
+                            if((i % 500 == 0) and i>0):
                                 segments.append(currString)
                                 currString = ''
                         segments.append(currString)
-                        #print('jsonData ',jsonData)
-                        #print('segments: ',segments)
                         numSegments = len(segments)
-                        tmpSock.sendall(struct.pack("I",1))
+                        tmpSock.sendall(struct.pack("I",len(str(numSegments))))
                         tmpSock.sendall(bytes(str(numSegments),'utf-8'))
                         for seg in segments:
                             tmpSock.sendall(struct.pack("I",len(seg)))
@@ -149,8 +143,7 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
                         msgF = self.request.recv(int(msgSize))
                         msgF = str(msgF,'utf-8')
                         print("Received message from server: ", msgF)
-                        
-                    #print(self.data)                         
+                                               
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
@@ -341,21 +334,17 @@ if __name__ == "__main__":
                         #This flag indicates that the receiver needs to decrypt the message
                         aSock.sendall(struct.pack("I",len(b'00000001')))
                         aSock.sendall(b'00000001')
-                        #aSock.sendall(struct.pack("I",len(bytes(jsonData,'utf-8'))))
-                        #aSock.sendall(bytes(jsonData,'utf-8'))
-                        #print(jsonData)
+
                         segments = []
                         currString = ''
                         for i in range(len(jsonData)):
                             currString += jsonData[i]
-                            if((i % 4000 == 0) and i>0):
+                            if((i % 500 == 0) and i>0):
                                 segments.append(currString)
                                 currString = ''
                         segments.append(currString)
-                        #print('jsonData ',jsonData)
-                        #print('segments: ',segments)
                         numSegments = len(segments)
-                        aSock.sendall(struct.pack("I",1))
+                        aSock.sendall(struct.pack("I",len(str(numSegments))))
                         aSock.sendall(bytes(str(numSegments),'utf-8'))
                         for seg in segments:
                             aSock.sendall(struct.pack("I",len(seg)))
