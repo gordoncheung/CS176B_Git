@@ -183,11 +183,11 @@ if __name__ == "__main__":
     pubKeyInBytes = pubKey.save_pkcs1(format='PEM')#This key is ready to be sent
     keyToRemove = []
     print("Server Ready")
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 3:
         print("ERROR: Invalid number of args. Terminating.")
         sys.exit(0)
     hostname = socket.gethostname()
-    HOST, PORT = socket.gethostbyname(hostname),  int(sys.argv[1])
+    HOST, PORT = sys.argv[1],  int(sys.argv[2])
     if (PORT > 65535 or PORT < 1024):
         print("ERROR: Invalid port. Terminating.", file=sys.stderr)
         sys.exit(0)
@@ -199,8 +199,10 @@ if __name__ == "__main__":
     
     try:
         print("Hosting on: ", HOST, PORT)
-        server = ThreadedTCPServer((HOST,int(sys.argv[1])), MyTCPHandler)#9999 is main port for now
+        server = ThreadedTCPServer((HOST,PORT), MyTCPHandler)#9999 is main port for now
         HOST, PORT = server.server_address
+        #server.server_activate()
+        #server.server_bind()
         server.allow_reuse_address=True
         server.serve_forever()
         
